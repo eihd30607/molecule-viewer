@@ -1,0 +1,46 @@
+name: Build Molecule Viewer EXE
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build-exe:
+    name: Build on Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip list
+
+      - name: Build EXE with PyInstaller (include rdkit data)
+        run: |
+          python -c "import rdkit; print(rdkit.__path__[0])" > temp.txt
+          set /p RDKitPath=<temp.txt
+          echo Found RDKit at %RDKitPath%
+          
+          pyinstaller --onefile --windowed ^
+            --add-data "%RDKitPath%\\Data;rdkit/Data" ^
+            --icon=icon.ico ^
+            --clean ^
+            --name=MoleculeViewer ^   # ← 添加这一行
+            main.py
+        shell: cmd
+
+      - name: Upload EXE as Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: molecule-viewer-exe
+          path: dist/MoleculeViewer.exe
