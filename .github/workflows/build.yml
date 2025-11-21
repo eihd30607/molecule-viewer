@@ -22,15 +22,21 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
-          pip list
+          pip install 'numpy<2'
+          pip install pyqt5 pyopengl
+          pip install rdkit-pypi
+          pip install pyinstaller
 
-      - name: Build EXE with PyInstaller (include rdkit/Data)
+      - name: Verify imports
+        run: |
+          python -c "import rdkit, PyQt5, OpenGL, PyInstaller"
+          python -c "import rdkit; print('RDKit OK:', rdkit.__path__[0])"
+
+      - name: Build EXE
         run: |
           python -c "import rdkit; print(rdkit.__path__[0])" > temp.txt
           set /p RDKitPath=<temp.txt
-          echo Found RDKit at %RDKitPath%
-          pyinstaller --onefile --windowed ^
+          python -m PyInstaller --onefile --windowed ^
             --add-data "%RDKitPath%\\Data;rdkit/Data" ^
             --icon=icon.ico ^
             --clean ^
