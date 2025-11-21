@@ -3,7 +3,7 @@ name: Build Molecule Viewer EXE
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   build-exe:
@@ -25,22 +25,20 @@ jobs:
           pip install -r requirements.txt
           pip list
 
-      - name: Build EXE with PyInstaller (include rdkit data)
+      - name: Build EXE with PyInstaller (include rdkit/Data)
         run: |
           python -c "import rdkit; print(rdkit.__path__[0])" > temp.txt
           set /p RDKitPath=<temp.txt
           echo Found RDKit at %RDKitPath%
-          
           pyinstaller --onefile --windowed ^
             --add-data "%RDKitPath%\\Data;rdkit/Data" ^
             --icon=icon.ico ^
             --clean ^
-            --name=MoleculeViewer ^   # ← 添加这一行
             main.py
         shell: cmd
 
       - name: Upload EXE as Artifact
         uses: actions/upload-artifact@v4
         with:
-        name: molecule-viewer-exe
-        path: dist/main.exe
+          name: molecule-viewer-exe
+          path: dist/main.exe
