@@ -20,12 +20,13 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QComboBox, QFrame, QMessageBox, QSizePolicy,
                              QTableWidget, QTableWidgetItem, QHeaderView,
                              QCheckBox, QRadioButton, QButtonGroup)
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QBrush, QColor, QPainter, QPen, QBrush
 from PyQt5.QtOpenGL import QGLWidget
 from OpenGL.GL import *
 from OpenGL.GLU import *
 import logging
+import math
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -241,7 +242,7 @@ MOLECULE_DB = {
     "硫酸根离子": "O=S(=O)([O-])[O-]",
     "四氟化硫": "FS(F)(F)F",
     "五氯化磷": "ClP(Cl)(Cl)(Cl)Cl",
-    "六氟化硫": "FS(F)(F)(F)(F)F",
+    "六氟化硫": "S(F)(F)(F)(F)(F)F",
     "四氟化氙": "F[Xe](F)(F)F",
     "氯化铍": "Cl[Be]Cl",
     "三氧化硫": "O=S(=O)=O",
@@ -267,42 +268,61 @@ MOLECULE_DB = {
     "高氯酸根": "[O-]Cl(=O)(=O)=O",
     "二氧化氯": "O=[Cl]=O",
     "二氟化氧": "OFF",
-    "四氟化氧": "OF(F)(F)F"
+    "四氟化氧": "OF(F)(F)F",
+    "葡萄糖": "OC[C@H]([C@@H](O)[C@H](O)[C@H](O)CO)O",
+    "氧化钙": "[Ca]=O",
+    "氢氧化钠": "[Na+].[O-][H]",
+    "氢氧化钙": "[Ca++](.[O-][H])(.[O-][H])",
+    "氯化钠": "[Na+].[Cl-]",
+    "碳酸钠": "[Na+].[Na+].C(=O)([O-])[O-]",
+    "碳酸氢钠": "[Na+].C(=O)([O-])O",
+    "氢气": "[H][H]",  # 单质 | 实验室制法：Zn + H₂SO₄ → H₂↑；检验：点燃淡蓝色火焰，干冷烧杯壁有水珠
+    "氧气": "O=O",  # 单质 | 实验室制法：2KClO₃ → 2KCl + 3O₂↑；检验：使带火星木条复燃
+    "氮气": "N#N",  # 单质 | 空气中含量 78%，稳定性源于 N≡N 三键高键能
+    "氯气": "ClCl",  # 单质 | 黄绿色有毒气体；实验室制法：MnO₂ + 4HCl(浓) → Cl₂↑；检验：湿润淀粉-KI 试纸变蓝
+    "臭氧": "O[O]O",  # 单质 | 淡蓝色气体，强氧化性漂白剂；与 O₂ 互为同素异形体
+    "一氧化碳": "C#O",  # 氧化物 | 无色剧毒气体；还原性：Fe₂O₃ + 3CO → 2Fe + 3CO₂；与 CO₂ 区分：燃烧或通过灼热 CuO
+    "一氧化氮": "[N]=O",  # 氧化物 | 无色气体，空气中氧化为红棕色 NO₂；实验室制法：3Cu + 8HNO₃(稀) → 2NO↑
+    "二氧化氮": "[O][N]=O",
+    # 新增：正八面体结构关键词
+    "正八面体": "FS(F)(F)(F)(F)F",
+    "八面体结构": "FS(F)(F)(F)(F)F",
+    "octahedral": "FS(F)(F)(F)(F)F"
 }
 
 # 原始已有的颜色定义
 ATOM_COLORS = {
-    'H': (1.0, 1.0, 1.0),        # 白色
+    'H': (1.0, 1.0, 1.0),  # 白色
     'C': (0.565, 0.565, 0.565),  # 灰色
-    'O': (1.0, 0.0, 0.0),        # 红色
-    'N': (0.0, 0.0, 1.0),        # 蓝色
-    'S': (1.0, 1.0, 0.0),        # 黄色
-    'P': (1.0, 0.5, 0.0),        # 橙色
-    'Cl': (0.0, 0.7, 0.0),       # 绿色
-    'F': (0.0, 1.0, 1.0),        # 青色
-    'Br': (0.6, 0.0, 0.0),       # 深红
-    'I': (0.4, 0.0, 0.4),        # 紫色
-    'Na': (0.6, 0.0, 0.8),       # 紫罗兰
-    'K': (0.5, 0.3, 0.1),        # 棕色
-    'Mg': (0.8, 0.8, 0.0),       # 亮黄
-    'Ca': (0.6, 0.6, 0.6),       # 银灰
-    'Fe': (0.8, 0.4, 0.2),       # 棕红
-    'Na+': (0.6, 0.0, 0.8),      # 钠离子
-    'K+': (0.5, 0.3, 0.1),       # 钾离子
-    'Ca2+': (0.6, 0.6, 0.6),     # 钙离子
-    'Mg2+': (0.8, 0.8, 0.0),     # 镁离子
-    'Cl-': (0.0, 0.7, 0.0),      # 氯离子
-    'OH-': (1.0, 0.5, 0.0)       # 氢氧根
+    'O': (1.0, 0.0, 0.0),  # 红色
+    'N': (0.0, 0.0, 1.0),  # 蓝色
+    'S': (1.0, 1.0, 0.0),  # 黄色
+    'P': (1.0, 0.5, 0.0),  # 橙色
+    'Cl': (0.0, 0.7, 0.0),  # 绿色
+    'F': (0.0, 1.0, 1.0),  # 青色
+    'Br': (0.6, 0.0, 0.0),  # 深红
+    'I': (0.4, 0.0, 0.4),  # 紫色
+    'Na': (0.6, 0.0, 0.8),  # 紫罗兰
+    'K': (0.5, 0.3, 0.1),  # 棕色
+    'Mg': (0.8, 0.8, 0.0),  # 亮黄
+    'Ca': (0.6, 0.6, 0.6),  # 银灰
+    'Fe': (0.8, 0.4, 0.2),  # 棕红
+    'Na+': (0.6, 0.0, 0.8),  # 钠离子
+    'K+': (0.5, 0.3, 0.1),  # 钾离子
+    'Ca2+': (0.6, 0.6, 0.6),  # 钙离子
+    'Mg2+': (0.8, 0.8, 0.0),  # 镁离子
+    'Cl-': (0.0, 0.7, 0.0),  # 氯离子
+    'OH-': (1.0, 0.5, 0.0)  # 氢氧根
 }
 
 # 新增的元素及其颜色
 ATOM_COLORS.update({
-    'Be': (0.75, 0.75, 0.75),   # 铍 - 新增，建议使用浅灰色
-    'B': (1.0, 0.7, 0.7),       # 硼 - 新增，建议使用粉红色/浅红色
-    'Si': (0.7, 0.7, 0.7),      # 硅 - 新增，建议使用暗灰色
-    'Sn': (0.6, 0.6, 0.7),      # 锡 - 新增，建议使用蓝灰色
-    'Pb': (0.5, 0.5, 0.6),      # 铅 - 新增，建议使用深灰蓝色
-    'Xe': (0.3, 0.7, 0.7)       # 氙 - 新增，建议使用青绿色
+    'Be': (0.75, 0.75, 0.75),  # 铍 - 新增，建议使用浅灰色
+    'B': (1.0, 0.7, 0.7),  # 硼 - 新增，建议使用粉红色/浅红色
+    'Si': (0.7, 0.7, 0.7),  # 硅 - 新增，建议使用暗灰色
+    'Sn': (0.6, 0.6, 0.7),  # 锡 - 新增，建议使用蓝灰色
+    'Pb': (0.5, 0.5, 0.6),  # 铅 - 新增，建议使用深灰蓝色
+    'Xe': (0.3, 0.7, 0.7)  # 氙 - 新增，建议使用青绿色
 })
 
 
@@ -311,12 +331,23 @@ def calculate_molecular_properties(mol):
     if not mol:
         return {}
 
-    # 确保分子有氢原子
-    mol_h = Chem.AddHs(mol)
-
     properties = {}
 
     try:
+        # 确保分子是"干净"的 - 先进行分子规范化
+        try:
+            Chem.SanitizeMol(mol)
+        except:
+            # 如果规范化失败，尝试修复分子
+            pass
+
+        # 确保隐式价态已计算
+        for atom in mol.GetAtoms():
+            atom.GetImplicitValence()
+
+        # 确保分子有氢原子
+        mol_h = Chem.AddHs(mol)
+
         # 计算分子量
         properties["分子量"] = f"{Descriptors.ExactMolWt(mol_h):.2f} g/mol"
 
@@ -405,6 +436,9 @@ class MoleculeViewer(QGLWidget):
         # 存储原子屏幕位置（用于标签渲染）
         self.atom_screen_positions = []
 
+        # 新增：用于绘制圆柱体的显示列表
+        self.bond_cylinders = {}
+
     def initializeGL(self):
         try:
             logger.info("Initializing OpenGL...")
@@ -414,30 +448,53 @@ class MoleculeViewer(QGLWidget):
                 logger.error("OpenGL context is not valid")
                 return
 
-            # 设置背景颜色
-            glClearColor(0.93, 0.93, 0.93, 1.0)  # 浅灰色背景
+            # 设置背景颜色（更柔和的浅灰）
+            glClearColor(0.85, 0.85, 0.85, 1.0)
 
             # 启用深度测试
             glEnable(GL_DEPTH_TEST)
+            glDepthFunc(GL_LEQUAL)
 
             # 启用光照
             glEnable(GL_LIGHTING)
             glEnable(GL_LIGHT0)
+            glEnable(GL_LIGHT1)  # 新增：第二个光源
 
             # 设置颜色材质
             glEnable(GL_COLOR_MATERIAL)
             glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
 
-            # 设置光源
-            light_position = [5.0, 5.0, 10.0, 1.0]
-            light_ambient = [0.2, 0.2, 0.2, 1.0]
-            light_diffuse = [0.8, 0.8, 0.8, 1.0]
-            light_specular = [1.0, 1.0, 1.0, 1.0]
+            # 优化1: 增强光源系统
+            # 主光源（提供主要照明和高光）
+            light0_position = [5.0, 5.0, 10.0, 1.0]  # 从右前方照射
+            light0_ambient = [0.2, 0.2, 0.2, 1.0]
+            light0_diffuse = [0.9, 0.9, 0.9, 1.0]
+            light0_specular = [1.0, 1.0, 1.0, 1.0]  # 强高光
 
-            glLightfv(GL_LIGHT0, GL_POSITION, light_position)
-            glLightfv(GL_LIGHT0, GL_AMBIENT, light_ambient)
-            glLightfv(GL_LIGHT0, GL_DIFFUSE, light_diffuse)
-            glLightfv(GL_LIGHT0, GL_SPECULAR, light_specular)
+            glLightfv(GL_LIGHT0, GL_POSITION, light0_position)
+            glLightfv(GL_LIGHT0, GL_AMBIENT, light0_ambient)
+            glLightfv(GL_LIGHT0, GL_DIFFUSE, light0_diffuse)
+            glLightfv(GL_LIGHT0, GL_SPECULAR, light0_specular)
+
+            # 填充光源（减少阴影，从左后方照射）
+            light1_position = [-5.0, -3.0, 5.0, 1.0]
+            light1_ambient = [0.1, 0.1, 0.1, 1.0]
+            light1_diffuse = [0.4, 0.4, 0.4, 1.0]
+            light1_specular = [0.2, 0.2, 0.2, 1.0]
+
+            glLightfv(GL_LIGHT1, GL_POSITION, light1_position)
+            glLightfv(GL_LIGHT1, GL_AMBIENT, light1_ambient)
+            glLightfv(GL_LIGHT1, GL_DIFFUSE, light1_diffuse)
+            glLightfv(GL_LIGHT1, GL_SPECULAR, light1_specular)
+
+            # 优化2: 添加雾效增强深度感
+            glEnable(GL_FOG)
+            fog_color = [0.85, 0.85, 0.85, 1.0]  # 与背景色匹配
+            glFogfv(GL_FOG_COLOR, fog_color)
+            glFogi(GL_FOG_MODE, GL_LINEAR)
+            glFogf(GL_FOG_START, 1.0)
+            glFogf(GL_FOG_END, 15.0)
+            glFogf(GL_FOG_DENSITY, 0.35)
 
             # 启用反走样
             glEnable(GL_LINE_SMOOTH)
@@ -445,12 +502,77 @@ class MoleculeViewer(QGLWidget):
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
             glHint(GL_LINE_SMOOTH_HINT, GL_NICEST)
 
+            # 优化3: 设置材质高光属性
+            glMaterialfv(GL_FRONT, GL_SPECULAR, [1.0, 1.0, 1.0, 1.0])
+            glMaterialf(GL_FRONT, GL_SHININESS, 80.0)  # 高光强度
+
+            # 新增：创建圆柱体显示列表
+            self.create_bond_cylinders()
+
             self.initialized = True
             logger.info("OpenGL initialized successfully")
 
         except Exception as e:
             logger.exception(f"Error initializing OpenGL: {str(e)}")
             QMessageBox.critical(self, "OpenGL Error", f"无法初始化OpenGL: {str(e)}")
+
+    def create_bond_cylinders(self):
+        """创建用于绘制化学键的圆柱体显示列表"""
+        # 单键
+        self.bond_cylinders['single'] = glGenLists(1)
+        glNewList(self.bond_cylinders['single'], GL_COMPILE)
+        self.draw_cylinder(0.05, 1.0, 20)
+        glEndList()
+
+        # 双键
+        self.bond_cylinders['double'] = glGenLists(1)
+        glNewList(self.bond_cylinders['double'], GL_COMPILE)
+        # 两个平行圆柱体
+        glPushMatrix()
+        glTranslatef(0.1, 0, 0)
+        self.draw_cylinder(0.05, 1.0, 20)
+        glPopMatrix()
+
+        glPushMatrix()
+        glTranslatef(-0.1, 0, 0)
+        self.draw_cylinder(0.05, 1.0, 20)
+        glPopMatrix()
+        glEndList()
+
+        # 三键
+        self.bond_cylinders['triple'] = glGenLists(1)
+        glNewList(self.bond_cylinders['triple'], GL_COMPILE)
+        # 三个平行圆柱体
+        glPushMatrix()
+        glTranslatef(0.15, 0, 0)
+        self.draw_cylinder(0.05, 1.0, 20)
+        glPopMatrix()
+
+        glPushMatrix()
+        glTranslatef(-0.15, 0, 0)
+        self.draw_cylinder(0.05, 1.0, 20)
+        glPopMatrix()
+
+        self.draw_cylinder(0.05, 1.0, 20)
+        glEndList()
+
+    def draw_cylinder(self, radius, height, slices):
+        """绘制圆柱体"""
+        quad = gluNewQuadric()
+        gluQuadricDrawStyle(quad, GLU_FILL)
+        gluQuadricNormals(quad, GLU_SMOOTH)
+
+        # 侧面
+        gluCylinder(quad, radius, radius, height, slices, 1)
+
+        # 顶部圆盘
+        glPushMatrix()
+        glTranslatef(0, 0, height)
+        gluDisk(quad, 0, radius, slices, 1)
+        glPopMatrix()
+
+        # 底部圆盘
+        gluDisk(quad, 0, radius, slices, 1)
 
     def resizeGL(self, width, height):
         try:
@@ -487,7 +609,7 @@ class MoleculeViewer(QGLWidget):
 
             # 在3D场景上叠加2D文本标签
             if self.show_atom_labels and self.atoms:
-                # ===== 修复1: 保存OpenGL状态 =====
+                # 修复1: 保存OpenGL状态
                 glPushAttrib(GL_ALL_ATTRIB_BITS)
                 glDisable(GL_DEPTH_TEST)
                 glDisable(GL_LIGHTING)
@@ -514,7 +636,7 @@ class MoleculeViewer(QGLWidget):
                     if atom_type == 'H' and not self.show_hydrogen_labels:
                         continue
 
-                    # ===== 修复2: 改进文本显示 =====
+                    # 修复2: 改进文本显示
                     # 设置文本颜色（与原子颜色对比）
                     color = ATOM_COLORS.get(atom_type, (0.5, 0.5, 0.5))
                     # 计算亮度，决定使用黑色还是白色文本
@@ -545,7 +667,7 @@ class MoleculeViewer(QGLWidget):
 
                 painter.end()
 
-                # ===== 修复3: 恢复OpenGL状态 =====
+                # 修复3: 恢复OpenGL状态
                 glMatrixMode(GL_PROJECTION)
                 glPopMatrix()
                 glMatrixMode(GL_MODELVIEW)
@@ -577,17 +699,52 @@ class MoleculeViewer(QGLWidget):
 
     def draw_molecule(self):
         try:
-            # 绘制化学键
-            glColor4f(0.5, 0.5, 0.5, 0.7)
-            glLineWidth(2.0)
-            glBegin(GL_LINES)
+            # 绘制键
             for bond in self.bonds:
                 i, j = bond
                 x1, y1, z1 = self.atoms[i]
                 x2, y2, z2 = self.atoms[j]
-                glVertex3f(x1, y1, z1)
-                glVertex3f(x2, y2, z2)
-            glEnd()
+
+                # 计算方向向量
+                dx, dy, dz = x2 - x1, y2 - y1, z2 - z1
+                length = np.sqrt(dx * dx + dy * dy + dz * dz)
+
+                # 计算旋转角度
+                angle = np.degrees(np.arctan2(np.sqrt(dx * dx + dy * dy), dz))
+
+                # 修复1: 明确指定axis为浮点类型数组
+                axis = np.array([-dy, dx, 0], dtype=np.float64)
+                axis_length = np.sqrt(np.sum(axis * axis))
+
+                # 修复2: 特殊处理Z轴方向的键
+                if axis_length < 1e-6:  # 几乎为零，表示键沿Z轴
+                    if dz > 0:
+                        axis = np.array([1.0, 0.0, 0.0], dtype=np.float64)  # 使用X轴作为旋转轴
+                    else:
+                        axis = np.array([0.0, 1.0, 0.0], dtype=np.float64)  # 使用Y轴作为旋转轴
+                    axis_length = 1.0
+
+                if axis_length > 0:
+                    axis /= axis_length  # 现在可以安全地进行浮点除法
+
+                # 绘制键
+                glPushMatrix()
+                glTranslatef(x1, y1, z1)
+
+                if axis_length > 0:
+                    glRotatef(angle, axis[0], axis[1], axis[2])
+
+                # 缩放圆柱体长度
+                glScalef(1, 1, length)
+
+                # 选择键类型
+                bond_key = 'single'  # 简化处理，所有键都用单键
+                if bond_key in self.bond_cylinders:
+                    glCallList(self.bond_cylinders[bond_key])
+                else:
+                    glCallList(self.bond_cylinders['single'])
+
+                glPopMatrix()
 
             # 绘制原子球体
             for i, atom in enumerate(self.atoms):
@@ -601,12 +758,28 @@ class MoleculeViewer(QGLWidget):
                 # 创建球体
                 quad = gluNewQuadric()
                 gluQuadricDrawStyle(quad, GLU_FILL)
+                gluQuadricNormals(quad, GLU_SMOOTH)
+
                 glPushMatrix()
                 glTranslatef(x, y, z)
 
-                # 根据原子类型设置球体大小
-                radius = 0.3 if atom_type == 'H' else 0.4
-                gluSphere(quad, radius, 20, 20)
+                # 根据原子类型调整半径
+                if atom_type == 'H':
+                    radius = 0.25
+                    slices = 16
+                    stacks = 16
+                else:
+                    radius = 0.35
+                    slices = 24
+                    stacks = 24
+
+                # 优化：增加深度提示
+                modelview = glGetDoublev(GL_MODELVIEW_MATRIX)
+                z_view = modelview[2][0] * x + modelview[2][1] * y + modelview[2][2] * z + modelview[2][3]
+                size_factor = max(0.8, 1.0 - 0.03 * abs(z_view))
+                radius *= size_factor
+
+                gluSphere(quad, radius, slices, stacks)
                 glPopMatrix()
         except Exception as e:
             logger.exception(f"Error drawing molecule: {str(e)}")
@@ -646,7 +819,7 @@ class MoleculeViewer(QGLWidget):
         except Exception as e:
             logger.exception(f"Error in wheelEvent: {str(e)}")
 
-    # ===== 新增方法：设置分子数据 =====
+    # 新增方法：设置分子数据
     def set_molecule_data(self, atoms, bonds, atom_types):
         """设置要显示的分子数据"""
         self.atoms = atoms
@@ -685,7 +858,7 @@ class MoleculeApp(QMainWindow):
 
         # 标题
         title_label = QLabel("化学分子结构可视化")
-        title_label.setFont(QFont("Arial", 16, QFont.Bold))
+        title_label.setFont(QFont("Arial", 14))  # 14号字体刚刚好
         title_label.setStyleSheet("color: #2c3e50;")
         title_label.setAlignment(Qt.AlignCenter)
         control_layout.addWidget(title_label)
@@ -744,7 +917,8 @@ class MoleculeApp(QMainWindow):
         self.molecule_combo = QComboBox()
         self.molecule_combo.addItems([
             "水", "甲烷", "乙烷", "乙烯", "乙炔",
-            "二氧化碳", "苯", "氨", "甲醇", "乙醇", "葡萄糖"
+            "二氧化碳", "苯", "氨", "甲醇", "乙醇", "葡萄糖",
+            "六氟化硫"  # 新增：添加六氟化硫到常用分子列表
         ])
         control_layout.addWidget(self.molecule_combo)
 
@@ -765,7 +939,7 @@ class MoleculeApp(QMainWindow):
         self.use_selected_btn.clicked.connect(self.use_selected_molecule)
         control_layout.addWidget(self.use_selected_btn)
 
-        # ===== 新增：显示选项 =====
+        # 新增：显示选项
         control_layout.addWidget(QLabel("显示选项:"))
 
         self.show_labels_checkbox = QCheckBox("显示原子标签")
@@ -777,7 +951,7 @@ class MoleculeApp(QMainWindow):
         self.show_hydrogen_labels_checkbox.setChecked(False)
         self.show_hydrogen_labels_checkbox.stateChanged.connect(self.toggle_hydrogen_labels)
         control_layout.addWidget(self.show_hydrogen_labels_checkbox)
-        # ===== 新增结束 =====
+        # 新增结束
 
         # 添加间隔
         control_layout.addSpacing(20)
@@ -844,22 +1018,93 @@ class MoleculeApp(QMainWindow):
         main_layout.addWidget(control_panel)
         main_layout.addWidget(self.viewer, 1)
 
-        # 确保OpenGL上下文已初始化后再加载分子
-        self.initialization_timer = self.startTimer(1000)
+        # 使用定时器确保OpenGL上下文初始化完成
+        self.init_timer = QTimer()
+        self.init_timer.timeout.connect(self.initialize_viewer)
+        self.init_timer.start(100)
 
-    def timerEvent(self, event):
-        # 等待OpenGL上下文初始化完成
-        self.killTimer(self.initialization_timer)
-
-        # 检查OpenGL是否已初始化
-        if hasattr(self.viewer, 'initialized') and self.viewer.initialized:
+    def initialize_viewer(self):
+        """初始化分子视图"""
+        if self.viewer.initialized:
+            self.init_timer.stop()
             # 生成默认分子（水）
             self.generate_molecule("水")
         else:
-            # 再次尝试
-            self.initialization_timer = self.startTimer(1000)
+            logger.info("Waiting for OpenGL initialization...")
 
-    # ===== 修改 generate_molecule 方法 =====
+    # 新增方法：创建完美的正八面体结构
+    def create_octahedral_structure(self, center_atom, ligand_atom, bond_length=1.56):
+        """
+        创建完美的正八面体分子结构
+
+        参数:
+        center_atom - 中心原子符号 (如 "S")
+        ligand_atom - 配体原子符号 (如 "F")
+        bond_length - 键长 (Å)，默认为S-F键长1.56Å
+
+        返回:
+        (success, mol, atoms, bonds, atom_types)
+        """
+        try:
+            logger.info(f"Creating perfect octahedral structure for {center_atom}{ligand_atom}6")
+
+            # 正八面体顶点坐标 (中心在原点，顶点在坐标轴上)
+            # 使用精确计算确保所有键等长
+            positions = [
+                (bond_length, 0, 0),  # +x
+                (-bond_length, 0, 0),  # -x
+                (0, bond_length, 0),  # +y
+                (0, -bond_length, 0),  # -y
+                (0, 0, bond_length),  # +z
+                (0, 0, -bond_length)  # -z
+            ]
+
+            # 创建原子列表
+            atoms = [(0.0, 0.0, 0.0)]  # 中心原子
+            atoms.extend(positions)  # 6个配位原子
+
+            # 创建原子类型列表
+            atom_types = [center_atom] + [ligand_atom] * 6
+
+            # 创建化学键 (所有键都是中心原子到配位原子)
+            bonds = [(0, i) for i in range(1, 7)]
+
+            # 创建RDKit分子对象用于属性计算
+            from rdkit import Chem
+            mol = Chem.RWMol()
+
+            # 添加中心原子
+            center_idx = mol.AddAtom(Chem.Atom(center_atom))
+
+            # 添加配位原子和键
+            for i in range(6):
+                ligand_idx = mol.AddAtom(Chem.Atom(ligand_atom))
+                mol.AddBond(center_idx, ligand_idx, Chem.BondType.SINGLE)
+
+            mol = mol.GetMol()
+
+            # ===== 关键修复：确保分子规范化 =====
+            try:
+                Chem.SanitizeMol(mol)
+            except:
+                pass  # 如果规范化失败，继续
+
+            # 创建3D构型
+            conf = Chem.Conformer(mol.GetNumAtoms())
+            conf.SetAtomPosition(0, (0.0, 0.0, 0.0))  # 中心原子
+
+            for i, pos in enumerate(positions):
+                conf.SetAtomPosition(i + 1, pos)
+
+            mol.AddConformer(conf)
+
+            return True, mol, atoms, bonds, atom_types
+
+        except Exception as e:
+            logger.exception(f"Error creating octahedral structure: {str(e)}")
+            return False, None, [], [], []
+
+    # 修改 generate_molecule 方法
     def generate_molecule(self, name=None):
         # 确保name是字符串或None
         if name is not None and not isinstance(name, str):
@@ -875,7 +1120,7 @@ class MoleculeApp(QMainWindow):
         # 检查输入模式
         is_smiles = self.smiles_mode.isChecked()
 
-        # ===== 关键修改：直接在MoleculeApp中生成分子数据 =====
+        # 关键修改：直接在MoleculeApp中生成分子数据
         success, mol, atoms, bonds, atom_types = self.generate_molecule_data(name, is_smiles)
         if success:
             # 将分子数据传递给viewer
@@ -899,7 +1144,7 @@ class MoleculeApp(QMainWindow):
             logger.warning(f"Failed to load molecule: {name}")
             QMessageBox.warning(self, "分子生成失败", error_msg)
 
-    # ===== 新增方法：在MoleculeApp中生成分子数据 =====
+    # 新增方法：在MoleculeApp中生成分子数据
     def generate_molecule_data(self, name, is_smiles=False):
         """在MoleculeApp中生成分子数据，而不是在MoleculeViewer中"""
         try:
@@ -923,13 +1168,28 @@ class MoleculeApp(QMainWindow):
                                      "运行: pip install 'numpy<2'")
                 return False, None, [], [], []
 
+            # 检查是否是请求正八面体结构
+            name_lower = name.lower().strip()
+            if "八面体" in name_lower or "octahedral" in name_lower or name_lower in ["sf6", "六氟化硫",
+                                                                                      "sulfur hexafluoride"]:
+                # 专门创建完美的正八面体结构
+                if "硫" in name_lower or "sulfur" in name_lower or name_lower in ["sf6", "六氟化硫",
+                                                                                  "sulfur hexafluoride"]:
+                    return self.create_octahedral_structure("S", "F", 1.56)
+                elif "钼" in name_lower or "molybdenum" in name_lower:
+                    return self.create_octahedral_structure("Mo", "CO", 2.1)  # Mo(CO)6
+                elif "铬" in name_lower or "chromium" in name_lower:
+                    return self.create_octahedral_structure("Cr", "Cl", 2.3)  # CrCl6^3-
+                else:
+                    # 默认创建硫-氟正八面体
+                    return self.create_octahedral_structure("S", "F", 1.56)
+
             # 如果是SMILES直接使用
             if is_smiles:
                 smiles = name
                 logger.info(f"Using SMILES directly: {smiles}")
             else:
                 # 尝试匹配数据库
-                name_lower = name.lower().strip()
                 if name_lower in MOLECULE_DB:
                     smiles = MOLECULE_DB[name_lower]
                     logger.info(f"Found in database: {name} -> {smiles}")
@@ -941,6 +1201,12 @@ class MoleculeApp(QMainWindow):
             # 从SMILES创建分子
             mol = Chem.MolFromSmiles(smiles)
             if mol:
+                # ===== 关键修复：确保分子规范化 =====
+                try:
+                    Chem.SanitizeMol(mol)
+                except:
+                    pass  # 如果规范化失败，继续
+
                 # 添加氢原子
                 mol = Chem.AddHs(mol)
 
@@ -970,7 +1236,6 @@ class MoleculeApp(QMainWindow):
             else:
                 logger.error(f"Failed to create molecule from SMILES: {smiles}")
                 # 尝试作为名称再次匹配（更宽松的匹配）
-                name_lower = name.lower().strip()
                 for key in MOLECULE_DB:
                     if name_lower in key.lower() or key.lower() in name_lower:
                         return self.generate_molecule_data(key, is_smiles=False)
@@ -985,7 +1250,7 @@ class MoleculeApp(QMainWindow):
         self.molecule_input.setText(name)
         self.generate_molecule()
 
-    # ===== 新增方法：控制标签显示 =====
+    # 新增方法：控制标签显示
     def toggle_atom_labels(self, state):
         """切换是否显示原子标签"""
         self.viewer.show_atom_labels = bool(state)
