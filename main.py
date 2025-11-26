@@ -26,6 +26,7 @@ from PyQt5.QtOpenGL import QGLWidget
 from OpenGL.GL import *
 from OpenGL.GLU import *
 import logging
+import webbrowser
 import math
 
 # 配置日志
@@ -284,6 +285,9 @@ MOLECULE_DB = {
     "一氧化碳": "C#O",  # 氧化物 | 无色剧毒气体；还原性：Fe₂O₃ + 3CO → 2Fe + 3CO₂；与 CO₂ 区分：燃烧或通过灼热 CuO
     "一氧化氮": "[N]=O",  # 氧化物 | 无色气体，空气中氧化为红棕色 NO₂；实验室制法：3Cu + 8HNO₃(稀) → 2NO↑
     "二氧化氮": "[O][N]=O",
+    "XeF₄": "FXe(F)(F)F",
+    "BrF₅": "FB(F)(F)(F)F",
+    "PCl₅":"ClP(Cl)(Cl)(Cl)Cl",
     # 新增：正八面体结构关键词
     "正八面体": "FS(F)(F)(F)(F)F",
     "八面体结构": "FS(F)(F)(F)(F)F",
@@ -838,6 +842,56 @@ class MoleculeViewer(QGLWidget):
 
 
 class MoleculeApp(QMainWindow):
+    def open_in_molview(self):
+        """在浏览器中使用 MolView 打开当前分子"""
+        try:
+            # 获取当前输入内容
+            user_input = self.molecule_input.text().strip()
+            if not user_input:
+                QMessageBox.warning(self, "输入为空", "请输入分子名称或SMILES")
+                return
+
+            # 判断是直接使用输入内容作为 SMILES 还是查数据库
+            is_smiles_mode = self.smiles_mode.isChecked()
+            smiles_to_use = user_input if is_smiles_mode else MOLECULE_DB.get(user_input.lower(), None)
+
+            if not smiles_to_use:
+                # 尝试从名称模糊匹配
+                for name, smi in MOLECULE_DB.items():
+                    if user_input.lower() in name or name in user_input.lower():
+                        smiles_to_use = smi
+                        break
+
+            if not smiles_to_use:
+                reply = QMessageBox.question(
+                    self, "未知分子",
+                    f"无法识别 '{user_input}'，是否直接以该字符串作为SMILES发送到MolView？",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if reply == QMessageBox.Yes:
+                    smiles_to_use = user_input
+                else:
+                    return
+
+            # 编码并生成 URL
+            import urllib.parse
+            encoded_smiles = urllib.parse.quote(smiles_to_use)
+            url = f"https://molview.org/?smiles={encoded_smiles}"
+
+            # 打开浏览器
+            webbrowser.open(url)
+
+            # 提示用户
+            QMessageBox.information(
+                self, "已打开",
+                f"正在浏览器中打开 MolView...\n"
+                f"SMILES: {smiles_to_use}\n"
+                f"网址: {url}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"无法打开MolView: {str(e)}")
+
     def __init__(self):
         super().__init__()
 
@@ -938,6 +992,22 @@ class MoleculeApp(QMainWindow):
         """)
         self.use_selected_btn.clicked.connect(self.use_selected_molecule)
         control_layout.addWidget(self.use_selected_btn)
+        # ==== 新增：在MolView中查看 ====
+        self.molview_btn = QPushButton("🌐 在MolView中查看")
+        self.molview_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #16a085;
+                color: white;
+                border: none;
+                padding: 6px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #13846d;
+            }
+        """)
+        self.molview_btn.clicked.connect(self.open_in_molview)
+        control_layout.addWidget(self.molview_btn)
 
         # 新增：显示选项
         control_layout.addWidget(QLabel("显示选项:"))
